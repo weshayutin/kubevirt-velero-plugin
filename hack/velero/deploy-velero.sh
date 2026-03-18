@@ -36,21 +36,10 @@ fi
 
 kvp::fetch_velero
 
-PLUGINS=velero/velero-plugin-for-aws:v1.10.0
-FEATURES=""
-
-if [[ "${USE_CSI}" == "1" ]]; then
-  PLUGINS="${PLUGINS}"
-  FEATURES="--features=EnableCSI"
-fi
-
-if [[ "${USE_RESTIC}" == "1" ]]; then
-  FEATURES="${FEATURES} --use-restic"
-fi
+PLUGINS=velero/velero-plugin-for-aws:v1.14.0
 
 if [[ ! $(_kubectl get deployments -n velero | grep velero) ]]; then
   echo "Plugins: ${PLUGINS}"
-  echo "Features: ${FEATURES}"
 
   ${VELERO_DIR}/velero install \
     --provider aws \
@@ -62,12 +51,10 @@ if [[ ! $(_kubectl get deployments -n velero | grep velero) ]]; then
     --velero-pod-mem-limit 1Gi \
     --kubeconfig $(pwd)/_ci-configs/${KUBEVIRT_PROVIDER}/.kubeconfig \
     --backup-location-config region=minio,s3ForcePathStyle="true",s3Url=http://minio.velero.svc:9000 \
-    --snapshot-location-config region=minio \
-    ${FEATURES}
+    --snapshot-location-config region=minio
 
-  _kubectl wait -n velero deployment/velero --for=condition=Available --timeout=${DEPLOYMENT_TIMEOUT}s
-
-  if [[ "${USE_CSI}" == "1" ]]; then
-    _kubectl label volumesnapshotclass/csi-rbdplugin-snapclass velero.io/csi-volumesnapshot-class=true --overwrite=true
-  fi
+  _kubectl patch deployment velero -n velero --type='json' \
+    -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--resource-timeout=20m"}]'
+  _kubectl rollout status deployment/velero -n velero --timeout=${DEPLOYMENT_TIMEOUT}s
+  _kubectl label volumesnapshotclass/csi-rbdplugin-snapclass velero.io/csi-volumesnapshot-class=true --overwrite=true
 fi

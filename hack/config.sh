@@ -48,8 +48,6 @@ _ssh=${KUBEVIRTCI_PATH}ssh.sh
 
 # Test infrastructure
 DEPLOYMENT_TIMEOUT=600
-USE_CSI=${USE_CSI:-1}
-USE_RESTIC=${USE_RESTIC:-0}
 VELERO_VERSION=${VELERO_VERSION:-v1.18.0}
 VELERO_DIR=_output/velero/bin
 
