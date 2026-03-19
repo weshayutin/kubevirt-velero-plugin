@@ -46,12 +46,12 @@ if [[ ! $(_kubectl get deployments -n velero | grep velero) ]]; then
     --plugins ${PLUGINS} \
     --bucket velero \
     --secret-file ${velero_resources_dir}/credentials-velero \
-    --use-volume-snapshots=true \
+    --use-volume-snapshots=false \
+    --features EnableCSI \
     --velero-pod-mem-request 512Mi \
     --velero-pod-mem-limit 1Gi \
     --kubeconfig $(pwd)/_ci-configs/${KUBEVIRT_PROVIDER}/.kubeconfig \
-    --backup-location-config region=minio,s3ForcePathStyle="true",s3Url=http://minio.velero.svc:9000 \
-    --snapshot-location-config region=minio
+    --backup-location-config region=minio,s3ForcePathStyle="true",s3Url=http://minio.velero.svc:9000
 
   _kubectl patch deployment velero -n velero --type='json' \
     -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--resource-timeout=20m"}]'

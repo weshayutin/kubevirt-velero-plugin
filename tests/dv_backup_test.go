@@ -134,7 +134,7 @@ var _ = Describe("DV Backup", func() {
 
 			phase, err := framework.GetBackupPhase(timeout, backupName, f.BackupNamespace)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(phase).To(Equal(velerov1api.BackupPhasePartiallyFailed))
+			Expect(phase).To(Equal(velerov1api.BackupPhaseCompleted))
 
 			By("Deleting DataVolume")
 			err = framework.DeleteDataVolume(f.KvClient, f.Namespace.Name, dv.Name)
