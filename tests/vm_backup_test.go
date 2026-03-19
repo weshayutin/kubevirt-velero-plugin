@@ -707,7 +707,7 @@ var _ = Describe("[smoke] VM Backup", func() {
 			err = framework.WaitForPVCPhase(f.K8sClient, f.Namespace.Name, dvForPVCName, v1.ClaimBound)
 			Expect(err).ToNot(HaveOccurred())
 		})
-		#todo this test vm is not starting correctly, need more eyes to fix.
+		//todo this test vm is not starting correctly, need more eyes to fix.
 		PIt("[test_id:10275]VM with hotplug disk", Label("PartnerComp"), func() {
 			By("Starting a VM")
 			err := f.CreateVMForHotplug()
