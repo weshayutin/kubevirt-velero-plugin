@@ -17,8 +17,35 @@ import (
 )
 
 const (
-	veleroCLI = "velero"
+	veleroCLI       = "velero"
+	describeMaxSize = 32 * 1024
 )
+
+func dumpVeleroDetails(entity, name, backupNamespace string) {
+	descCmd := exec.Command(veleroCLI, entity, "describe", name, "--namespace", backupNamespace, "--details")
+	descOut, err := descCmd.CombinedOutput()
+	if err != nil {
+		ginkgo.By(fmt.Sprintf("WARN: failed to get %s describe for %s: %v", entity, name, err))
+	} else {
+		output := string(descOut)
+		if len(output) > describeMaxSize {
+			output = output[:describeMaxSize] + "\n... (truncated)"
+		}
+		ginkgo.By(fmt.Sprintf("=== velero %s describe --details for %s ===\n%s\n=== end ===", entity, name, output))
+	}
+
+	logsCmd := exec.Command(veleroCLI, entity, "logs", name, "--namespace", backupNamespace)
+	logsOut, err := logsCmd.CombinedOutput()
+	if err != nil {
+		ginkgo.By(fmt.Sprintf("WARN: failed to get %s logs for %s: %v", entity, name, err))
+	} else {
+		lines := strings.Split(string(logsOut), "\n")
+		if len(lines) > 50 {
+			lines = lines[len(lines)-50:]
+		}
+		ginkgo.By(fmt.Sprintf("=== velero %s logs (last 50 lines) for %s ===\n%s\n=== end ===", entity, name, strings.Join(lines, "\n")))
+	}
+}
 
 // TODO: change this to resource not a command!!!
 func executeBackupCommand(ctx context.Context, backupName, includedNamespace, excludedNamespace, excludedResources, includedResources, selector, snapshotLocation, backupNamespace string, wait, metadataBackup bool) error {
@@ -165,6 +192,7 @@ func WaitForBackupPhase(ctx context.Context, backupName string, backupNamespace 
 		return true, nil
 	})
 	if err != nil {
+		dumpVeleroDetails("backup", backupName, backupNamespace)
 		return fmt.Errorf("backup %s not in phase %s within %v", backupName, expectedPhase, waitTime)
 	}
 	return nil
@@ -316,6 +344,7 @@ func WaitForRestorePhase(ctx context.Context, restoreName string, backupNamespac
 		return false, nil
 	})
 	if err != nil {
+		dumpVeleroDetails("restore", restoreName, backupNamespace)
 		return fmt.Errorf("restore %s not in phase %s within %v", restoreName, expectedPhase, waitTime)
 	}
 	return nil
@@ -344,6 +373,7 @@ func waitForRestoreTerminalPhase(ctx context.Context, restoreName, backupNamespa
 		return false, nil
 	})
 	if err != nil {
+		dumpVeleroDetails("restore", restoreName, backupNamespace)
 		return fmt.Errorf("restore %s did not reach terminal phase within %v", restoreName, restoreWaitTime)
 	}
 	return nil

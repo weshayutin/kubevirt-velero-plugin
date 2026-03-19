@@ -19,6 +19,27 @@
 # Set variables
 VELERO_CLI=${VELERO_CLI:-velero}
 
+# Dump describe --details for a failed backup or restore to aid debugging
+dump_backup_details() {
+  local backup_name=$1
+  local namespace=$2
+  echo "=== velero backup describe --details ==="
+  $VELERO_CLI backup describe "$backup_name" --namespace "$namespace" --details 2>&1 || true
+  echo "=== velero backup logs (last 50 lines) ==="
+  $VELERO_CLI backup logs "$backup_name" --namespace "$namespace" 2>&1 | tail -50 || true
+  echo "=== end backup details ==="
+}
+
+dump_restore_details() {
+  local restore_name=$1
+  local namespace=$2
+  echo "=== velero restore describe --details ==="
+  $VELERO_CLI restore describe "$restore_name" --namespace "$namespace" --details 2>&1 || true
+  echo "=== velero restore logs (last 50 lines) ==="
+  $VELERO_CLI restore logs "$restore_name" --namespace "$namespace" 2>&1 | tail -50 || true
+  echo "=== end restore details ==="
+}
+
 # Function to print usage
 usage() {
   echo "Usage:"
@@ -136,6 +157,7 @@ verify_backup_completion() {
 
     if [ "$backup_phase" == "Failed" ] || [ "$backup_phase" == "PartiallyFailed" ]; then
       echo "Error: Backup reached terminal failure state: $backup_phase"
+      dump_backup_details "$backup_name" "$namespace"
       exit 1
     fi
 
@@ -144,6 +166,7 @@ verify_backup_completion() {
   done
 
   echo "Error: Backup did not complete within ${max_wait}s. Last status: $backup_phase"
+  dump_backup_details "$backup_name" "$namespace"
   exit 1
 }
 
@@ -258,6 +281,7 @@ verify_restore_completion() {
 
     if [ "$restore_phase" == "Failed" ] || [ "$restore_phase" == "PartiallyFailed" ]; then
       echo "Error: Restore reached terminal failure state: $restore_phase"
+      dump_restore_details "$restore_name" "$namespace"
       exit 1
     fi
 
@@ -266,6 +290,7 @@ verify_restore_completion() {
   done
 
   echo "Error: Restore did not complete within ${max_wait}s. Last status: $restore_phase"
+  dump_restore_details "$restore_name" "$namespace"
   exit 1
 }
 
@@ -299,6 +324,7 @@ verify_selective_restore_completion() {
   done
 
   echo "Error: Selective restore did not reach terminal state within ${max_wait}s"
+  dump_restore_details "$restore_name" "$namespace"
   exit 1
 }
 
