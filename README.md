@@ -122,14 +122,18 @@ export KUBECONFIG=~/.kube/config \
   KUBEVIRT_PROVIDER=external \
   KVP_STORAGE_CLASS=ocs-storagecluster-ceph-rbd-virtualization \
   KVP_BACKUP_NS=velero
-
+```
+run all
+```
 make test-functional-local
 ```
+run and fail fast
 ```
 make test-functional-local TEST_ARGS="--test-args=-ginkgo.fail-fast"
 ```
+run less tests:
 test-args=smoke
-etc.
+
 
 
 1. `make cluster-push-image` to build and push image to local cluster
