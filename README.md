@@ -116,6 +116,21 @@ $ DOCKER_PREFIX=your-repo/your-name DOCKER_TAG=your-version-tag make build-image
 Development version of the plugin is intended to work in local cluster build with KubeVirt's or CDI's `make cluster-up`.
 To deploy the plugin:
 
+## run local
+```
+export KUBECONFIG=~/.kube/config \
+  KUBEVIRT_PROVIDER=external \
+  KVP_STORAGE_CLASS=ocs-storagecluster-ceph-rbd-virtualization \
+  KVP_BACKUP_NS=velero
+
+make test-functional-local
+```
+```
+make test-functional-local TEST_ARGS="--test-args=-ginkgo.fail-fast"
+```
+test-args=smoke
+etc.
+
 
 1. `make cluster-push-image` to build and push image to local cluster
 2. `make local-deploy-velero` to deploy Velero to local cluster
