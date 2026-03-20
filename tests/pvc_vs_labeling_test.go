@@ -154,23 +154,23 @@ var _ = Describe("PVC and VolumeSnapshot Labeling", func() {
 			err = framework.CreateRestoreWithLabelSelector(timeout, backupName, restoreName, f.BackupNamespace, labelSelector, false)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Poll for restore to reach terminal state
-			// Accept Completed, PartiallyFailed, or Finalizing since CSI snapshot restore with label selectors
-			// gets stuck in Finalizing when PVCs cannot bind (no VM/pod to consume them)
 			var rPhase velerov1api.RestorePhase
-			err = wait.PollImmediate(2*time.Second, 180*time.Second, func() (bool, error) {
+			err = wait.PollImmediate(2*time.Second, 300*time.Second, func() (bool, error) {
 				phase, err := framework.GetRestorePhase(timeout, restoreName, f.BackupNamespace)
 				if err != nil {
 					return false, err
 				}
 				rPhase = phase
-				if phase == velerov1api.RestorePhaseCompleted || phase == velerov1api.RestorePhasePartiallyFailed || phase == velerov1api.RestorePhaseFinalizing {
+				if phase == velerov1api.RestorePhaseCompleted || phase == velerov1api.RestorePhasePartiallyFailed {
 					return true, nil
+				}
+				if phase == velerov1api.RestorePhaseFailed || phase == velerov1api.RestorePhaseFailedValidation {
+					return false, fmt.Errorf("restore failed with phase: %s", phase)
 				}
 				return false, nil
 			})
 			Expect(err).ToNot(HaveOccurred(), "restore should reach a terminal status")
-			Expect(rPhase).To(Or(Equal(velerov1api.RestorePhaseCompleted), Equal(velerov1api.RestorePhasePartiallyFailed), Equal(velerov1api.RestorePhaseFinalizing)))
+			Expect(rPhase).To(Or(Equal(velerov1api.RestorePhaseCompleted), Equal(velerov1api.RestorePhasePartiallyFailed)))
 
 			By("Verifying only PVC1 was restored (label cleaned up)")
 			restoredPVC1, err := framework.FindPVC(f.K8sClient, f.Namespace.Name, pvc1Name)

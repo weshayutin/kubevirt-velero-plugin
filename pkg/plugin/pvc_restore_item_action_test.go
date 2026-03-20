@@ -5,20 +5,24 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/plugin/velero"
 	corev1api "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes/fake"
 
 	"kubevirt.io/kubevirt-velero-plugin/pkg/util"
 )
 
-func TestPvcRestoreExecute(t *testing.T) {
+func TestPvcRestoreV2Execute(t *testing.T) {
 	testCases := []struct {
-		name           string
-		input          velero.RestoreItemActionExecuteInput
-		expectSkip     bool
-		expectedLabels map[string]string
+		name                string
+		input               velero.RestoreItemActionExecuteInput
+		expectSkip          bool
+		expectOperationID   string
+		expectedLabels      map[string]string
 	}{
 		{
 			"Skip the unfinished PVC",
@@ -45,10 +49,11 @@ func TestPvcRestoreExecute(t *testing.T) {
 				},
 			},
 			true,
+			"",
 			nil,
 		},
 		{
-			"Remove resource UID label from PVC",
+			"Remove resource UID label from PVC and register operation",
 			velero.RestoreItemActionExecuteInput{
 				Item: &unstructured.Unstructured{
 					Object: map[string]interface{}{
@@ -68,6 +73,7 @@ func TestPvcRestoreExecute(t *testing.T) {
 				},
 			},
 			false,
+			"pvc-binding:test-namespace/test-pvc",
 			map[string]string{
 				"other-label": "other-value",
 			},
@@ -84,11 +90,11 @@ func TestPvcRestoreExecute(t *testing.T) {
 							"namespace": "test-namespace",
 							"uid":       "633ab84c-8529-487c-8848-99b40fbda9f5",
 							"labels": map[string]interface{}{
-								util.PVCUIDLabel: "633ab84c-8529-487c-8848-99b40fbda9f5", // Plugin-added during backup
+								util.PVCUIDLabel: "633ab84c-8529-487c-8848-99b40fbda9f5",
 								"other-label":    "other-value",
 							},
 							"annotations": map[string]interface{}{
-								util.OriginalPVCUIDAnnotation: "original-user-uid-value", // User's original value
+								util.OriginalPVCUIDAnnotation: "original-user-uid-value",
 							},
 						},
 						"spec": map[string]interface{}{},
@@ -96,8 +102,9 @@ func TestPvcRestoreExecute(t *testing.T) {
 				},
 			},
 			false,
+			"pvc-binding:test-namespace/collision-pvc",
 			map[string]string{
-				util.PVCUIDLabel: "original-user-uid-value", // Should be restored to original
+				util.PVCUIDLabel: "original-user-uid-value",
 				"other-label":    "other-value",
 			},
 		},
@@ -121,6 +128,7 @@ func TestPvcRestoreExecute(t *testing.T) {
 				},
 			},
 			false,
+			"pvc-binding:test-namespace/test-pvc",
 			map[string]string{
 				"existing-label": "existing-value",
 			},
@@ -141,12 +149,15 @@ func TestPvcRestoreExecute(t *testing.T) {
 				},
 			},
 			false,
+			"pvc-binding:test-namespace/test-pvc",
 			map[string]string{},
 		},
 	}
 
 	logrus.SetLevel(logrus.ErrorLevel)
-	action := NewPVCRestoreItemAction(logrus.StandardLogger())
+	fakeClient := fake.NewSimpleClientset()
+	action := NewPVCRestoreItemActionV2(logrus.StandardLogger(), fakeClient)
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result, err := action.Execute(&tc.input)
@@ -156,19 +167,19 @@ func TestPvcRestoreExecute(t *testing.T) {
 
 			if tc.expectSkip {
 				assert.True(t, result.SkipRestore)
+				assert.Empty(t, result.OperationID)
 				return
 			}
 
 			assert.False(t, result.SkipRestore)
+			assert.Equal(t, tc.expectOperationID, result.OperationID)
 
-			// Extract the result PVC
 			var resultPVC corev1api.PersistentVolumeClaim
 			err = runtime.DefaultUnstructuredConverter.FromUnstructured(result.UpdatedItem.UnstructuredContent(), &resultPVC)
 			if !assert.NoError(t, err) {
 				return
 			}
 
-			// Verify expected labels are present and resource name label is removed
 			if tc.expectedLabels == nil {
 				tc.expectedLabels = make(map[string]string)
 			}
@@ -185,16 +196,113 @@ func TestPvcRestoreExecute(t *testing.T) {
 				assert.Equal(t, expectedValue, actualValue, "Label %s value mismatch", expectedKey)
 			}
 
-			// Verify resource UID label was removed (unless it was restored to original)
 			if tc.expectedLabels[util.PVCUIDLabel] == "" {
 				_, exists := resultPVC.Labels[util.PVCUIDLabel]
 				assert.False(t, exists, "Resource UID label should have been removed")
 			}
 
-			// Verify collision annotation was removed if it existed
 			_, hasCollisionAnnotation := resultPVC.Annotations[util.OriginalPVCUIDAnnotation]
 			assert.False(t, hasCollisionAnnotation, "Collision annotation should have been removed")
 		})
 	}
 }
 
+func TestPvcRestoreV2Progress(t *testing.T) {
+	restore := &velerov1api.Restore{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-restore",
+			Namespace: "velero",
+		},
+	}
+
+	t.Run("PVC not found reports in-progress", func(t *testing.T) {
+		fakeClient := fake.NewSimpleClientset()
+		action := NewPVCRestoreItemActionV2(logrus.StandardLogger(), fakeClient)
+
+		progress, err := action.Progress("pvc-binding:test-ns/test-pvc", restore)
+		assert.NoError(t, err)
+		assert.False(t, progress.Completed)
+	})
+
+	t.Run("PVC Pending reports in-progress", func(t *testing.T) {
+		pvc := &corev1api.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-pvc",
+				Namespace: "test-ns",
+			},
+			Status: corev1api.PersistentVolumeClaimStatus{
+				Phase: corev1api.ClaimPending,
+			},
+		}
+		fakeClient := fake.NewSimpleClientset(pvc)
+		action := NewPVCRestoreItemActionV2(logrus.StandardLogger(), fakeClient)
+
+		progress, err := action.Progress("pvc-binding:test-ns/test-pvc", restore)
+		assert.NoError(t, err)
+		assert.False(t, progress.Completed)
+	})
+
+	t.Run("PVC Bound reports completed", func(t *testing.T) {
+		pvc := &corev1api.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-pvc",
+				Namespace: "test-ns",
+			},
+			Status: corev1api.PersistentVolumeClaimStatus{
+				Phase: corev1api.ClaimBound,
+			},
+		}
+		fakeClient := fake.NewSimpleClientset(pvc)
+		action := NewPVCRestoreItemActionV2(logrus.StandardLogger(), fakeClient)
+
+		progress, err := action.Progress("pvc-binding:test-ns/test-pvc", restore)
+		assert.NoError(t, err)
+		assert.True(t, progress.Completed)
+	})
+
+	t.Run("Invalid operation ID returns error", func(t *testing.T) {
+		fakeClient := fake.NewSimpleClientset()
+		action := NewPVCRestoreItemActionV2(logrus.StandardLogger(), fakeClient)
+
+		_, err := action.Progress("invalid-prefix:test-ns/test-pvc", restore)
+		assert.Error(t, err)
+	})
+
+	t.Run("Malformed PVC key returns error", func(t *testing.T) {
+		fakeClient := fake.NewSimpleClientset()
+		action := NewPVCRestoreItemActionV2(logrus.StandardLogger(), fakeClient)
+
+		_, err := action.Progress("pvc-binding:no-slash", restore)
+		assert.Error(t, err)
+	})
+
+	t.Run("Namespace remapping is applied", func(t *testing.T) {
+		pvc := &corev1api.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-pvc",
+				Namespace: "remapped-ns",
+			},
+			Status: corev1api.PersistentVolumeClaimStatus{
+				Phase: corev1api.ClaimBound,
+			},
+		}
+		fakeClient := fake.NewSimpleClientset(pvc)
+		action := NewPVCRestoreItemActionV2(logrus.StandardLogger(), fakeClient)
+
+		restoreWithMapping := &velerov1api.Restore{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-restore",
+				Namespace: "velero",
+			},
+			Spec: velerov1api.RestoreSpec{
+				NamespaceMapping: map[string]string{
+					"original-ns": "remapped-ns",
+				},
+			},
+		}
+
+		progress, err := action.Progress("pvc-binding:original-ns/test-pvc", restoreWithMapping)
+		assert.NoError(t, err)
+		assert.True(t, progress.Completed)
+	})
+}

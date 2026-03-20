@@ -33,7 +33,7 @@ func main() {
 		BindFlags(pflag.CommandLine).
 		RegisterRestoreItemAction("kubevirt-velero-plugin/restore-vm-action", newVMRestoreItemAction).
 		RegisterRestoreItemAction("kubevirt-velero-plugin/restore-vmi-action", newVMIRestoreItemAction).
-		RegisterRestoreItemAction("kubevirt-velero-plugin/restore-pvc-action", newPVCRestoreItemAction).
+		RegisterRestoreItemActionV2("kubevirt-velero-plugin/restore-pvc-action-v2", newPVCRestoreItemActionV2).
 		RegisterRestoreItemAction("kubevirt-velero-plugin/restore-pod-action", newPodRestoreItemAction).
 		RegisterRestoreItemAction("kubevirt-velero-plugin/restore-volumesnapshot-action", newVolumeSnapshotRestoreItemAction).
 		RegisterBackupItemAction("kubevirt-velero-plugin/backup-datavolume-action", newDVBackupItemAction).
@@ -84,9 +84,13 @@ func newVMIRestoreItemAction(logger logrus.FieldLogger) (interface{}, error) {
 	return plugin.NewVMIRestoreItemAction(logger), nil
 }
 
-func newPVCRestoreItemAction(logger logrus.FieldLogger) (interface{}, error) {
-	logger.Debug("Creating PvcRestoreItemAction")
-	return plugin.NewPVCRestoreItemAction(logger), nil
+func newPVCRestoreItemActionV2(logger logrus.FieldLogger) (interface{}, error) {
+	logger.Debug("Creating PVCRestoreItemActionV2")
+	client, err := util.GetK8sClient()
+	if err != nil {
+		return nil, err
+	}
+	return plugin.NewPVCRestoreItemActionV2(logger, client), nil
 }
 
 func newPodRestoreItemAction(logger logrus.FieldLogger) (interface{}, error) {

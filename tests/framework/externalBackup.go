@@ -105,17 +105,17 @@ func (f *Framework) RunRestoreScriptWithLabelSelector(ctx context.Context, backu
 		if err != nil {
 			return err
 		}
-		// Accept Completed, PartiallyFailed, or Finalizing since CSI snapshot restore with label selectors
-		// gets stuck in Finalizing phase when PVCs cannot bind (no VM/pod to consume them)
-		// Poll for restore completion
-		err = wait.PollImmediate(2*time.Second, 180*time.Second, func() (bool, error) {
+		err = wait.PollImmediate(2*time.Second, 300*time.Second, func() (bool, error) {
 			phase, err := GetRestorePhase(ctx, restoreName, backupNamespace)
-			ginkgo.By(fmt.Sprintf("Waiting for restore phase (Completed, PartiallyFailed, or Finalizing), got %v", phase))
+			ginkgo.By(fmt.Sprintf("Waiting for restore phase (Completed or PartiallyFailed), got %v", phase))
 			if err != nil {
 				return false, err
 			}
-			if phase == velerov1api.RestorePhaseCompleted || phase == velerov1api.RestorePhasePartiallyFailed || phase == velerov1api.RestorePhaseFinalizing {
+			if phase == velerov1api.RestorePhaseCompleted || phase == velerov1api.RestorePhasePartiallyFailed {
 				return true, nil
+			}
+			if phase == velerov1api.RestorePhaseFailed || phase == velerov1api.RestorePhaseFailedValidation {
+				return false, fmt.Errorf("restore failed with phase: %s", phase)
 			}
 			return false, nil
 		})
@@ -151,8 +151,8 @@ func (f *Framework) RunRestoreScriptWithLabelSelector(ctx context.Context, backu
 	if err != nil {
 		return err
 	}
-	if phase != velerov1api.RestorePhaseCompleted && phase != velerov1api.RestorePhasePartiallyFailed && phase != velerov1api.RestorePhaseFinalizing {
-		return fmt.Errorf("restore phase is %s, expected Completed, PartiallyFailed, or Finalizing", phase)
+	if phase != velerov1api.RestorePhaseCompleted && phase != velerov1api.RestorePhasePartiallyFailed {
+		return fmt.Errorf("restore phase is %s, expected Completed or PartiallyFailed", phase)
 	}
 	return nil
 }
